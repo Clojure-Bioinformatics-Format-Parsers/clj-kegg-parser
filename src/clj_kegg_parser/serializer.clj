@@ -45,6 +45,18 @@
   (- *line-width* *label-width*))
 
 ;; ---------------------------------------------------------------------------
+;; Special Field Sets
+;; ---------------------------------------------------------------------------
+
+(def mol-block-fields
+  "Fields that contain MOL-format chemical structure data."
+  #{:atom :bond :bracket})
+
+(def sequence-fields
+  "Fields that contain sequence data requiring special wrapping."
+  #{:aaseq :ntseq})
+
+;; ---------------------------------------------------------------------------
 ;; Utility Functions
 ;; ---------------------------------------------------------------------------
 
@@ -246,7 +258,7 @@
                     []
                     (->> seq-clean
                          (partition-all *sequence-line-width*)
-                         (map #(apply str %))))]
+                         (map str/join)))]
     (concat
      [(str label-str length)]
      (map #(str (blank-label) %) seq-lines))))
@@ -341,11 +353,11 @@
             (emit-reference value)
             
             ;; Special handling for sequences (AASEQ/NTSEQ)
-            (#{:aaseq :ntseq} field)
+            (sequence-fields field)
             (emit-sequence field value)
             
             ;; Special handling for MOL blocks (ATOM/BOND/BRACKET)
-            (#{:atom :bond :bracket} field)
+            (mol-block-fields field)
             (emit-mol-block field value)
             
             ;; Special handling for KCF blocks (GLYCAN)

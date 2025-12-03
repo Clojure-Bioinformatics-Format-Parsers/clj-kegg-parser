@@ -207,15 +207,17 @@
       (is (str/starts-with? (first lines) "AASEQ"))
       (is (str/includes? (first lines) "41"))))
   
-  (testing "sequence wraps at 60 characters"
+  (testing "sequence wraps at configured line width"
     (let [long-seq (apply str (repeat 120 "A"))
-          lines (ser/emit-sequence :aaseq long-seq)]
+          lines (ser/emit-sequence :aaseq long-seq)
+          expected-line-count (+ 1 (int (Math/ceil (/ 120.0 ser/*sequence-line-width*))))
+          expected-full-line-length (+ ser/*label-width* ser/*sequence-line-width*)]
       ;; First line has label + length, then sequence lines
-      (is (= 3 (count lines)))  ;; header + 2 sequence lines
+      (is (= expected-line-count (count lines)))  ;; header + sequence lines
       (is (str/includes? (first lines) "120"))
-      ;; Check sequence lines are 60 chars each (after label padding)
-      (is (= 72 (count (second lines))))  ;; 12 spaces + 60 chars
-      (is (= 72 (count (nth lines 2)))))))  ;; 12 spaces + 60 chars
+      ;; Check sequence lines have correct length (label-width + sequence-line-width)
+      (is (= expected-full-line-length (count (second lines))))
+      (is (= expected-full-line-length (count (nth lines 2)))))))
 
 (deftest emit-sequence-ntseq-test
   (testing "NTSEQ sequence format"
