@@ -197,6 +197,146 @@
         (is (= (:name original) (:name parsed)))))))
 
 ;; ---------------------------------------------------------------------------
+;; Sequence Formatting Tests
+;; ---------------------------------------------------------------------------
+
+(deftest emit-sequence-test
+  (testing "sequence shows correct length"
+    (let [seq-data "MVLSPADKTNVKAAWGKVGAHAGEYGAEALERMFLSFPTTK"
+          lines (ser/emit-sequence :aaseq seq-data)]
+      (is (str/starts-with? (first lines) "AASEQ"))
+      (is (str/includes? (first lines) "41"))))
+  
+  (testing "sequence wraps at 60 characters"
+    (let [long-seq (apply str (repeat 120 "A"))
+          lines (ser/emit-sequence :aaseq long-seq)]
+      ;; First line has label + length, then sequence lines
+      (is (= 3 (count lines)))  ;; header + 2 sequence lines
+      (is (str/includes? (first lines) "120"))
+      ;; Check sequence lines are 60 chars each (after label padding)
+      (is (= 72 (count (second lines))))  ;; 12 spaces + 60 chars
+      (is (= 72 (count (nth lines 2)))))))  ;; 12 spaces + 60 chars
+
+(deftest emit-sequence-ntseq-test
+  (testing "NTSEQ sequence format"
+    (let [seq-data "ATGCATGCATGC"
+          lines (ser/emit-sequence :ntseq seq-data)]
+      (is (str/starts-with? (first lines) "NTSEQ"))
+      (is (str/includes? (first lines) "12")))))
+
+;; ---------------------------------------------------------------------------
+;; Format-Specific Serialization Tests
+;; ---------------------------------------------------------------------------
+
+(deftest pathway-format-test
+  (testing "PATHWAY entry serialization"
+    (let [entry {:entry "map00010"
+                 :name "Glycolysis / Gluconeogenesis"
+                 :class "Metabolism; Carbohydrate metabolism"
+                 :pathway-map ["map00010 Glycolysis / Gluconeogenesis"]
+                 :entry-type :pathway}
+          text (ser/kegg-map->text entry)]
+      (is (str/includes? text "ENTRY"))
+      (is (str/includes? text "NAME"))
+      (is (str/includes? text "CLASS"))
+      (is (str/includes? text "PATHWAY_MAP"))
+      (is (str/includes? text "///")))))
+
+(deftest genes-format-test
+  (testing "GENES entry with sequence"
+    (let [entry {:entry "hsa:7157"
+                 :name "TP53"
+                 :definition "tumor protein p53"
+                 :organism "Homo sapiens (human)"
+                 :aaseq "MEEPQSDPSVEPPLSQETFSDLWKLLPENNVLSPLPSQAMDDLMLSPDDIEQWFTEDPGP"
+                 :entry-type :genes}
+          text (ser/kegg-map->text entry)]
+      (is (str/includes? text "ENTRY"))
+      (is (str/includes? text "AASEQ"))
+      (is (str/includes? text "60"))  ;; sequence length
+      (is (str/includes? text "///")))))
+
+(deftest compound-format-test
+  (testing "COMPOUND entry serialization"
+    (let [entry {:entry "C00001"
+                 :name "H2O; Water"
+                 :formula "H2O"
+                 :exact-mass "18.0106"
+                 :mol-weight "18.0153"
+                 :entry-type :compound}
+          text (ser/kegg-map->text entry)]
+      (is (str/includes? text "ENTRY"))
+      (is (str/includes? text "FORMULA"))
+      (is (str/includes? text "EXACT_MASS"))
+      (is (str/includes? text "MOL_WEIGHT"))
+      (is (str/includes? text "///")))))
+
+(deftest enzyme-format-test
+  (testing "ENZYME entry serialization"
+    (let [entry {:entry "1.1.1.1"
+                 :name "Alcohol dehydrogenase"
+                 :class "Oxidoreductases"
+                 :sysname "alcohol:NAD+ oxidoreductase"
+                 :entry-type :enzyme}
+          text (ser/kegg-map->text entry)]
+      (is (str/includes? text "ENTRY"))
+      (is (str/includes? text "NAME"))
+      (is (str/includes? text "CLASS"))
+      (is (str/includes? text "SYSNAME"))
+      (is (str/includes? text "///")))))
+
+(deftest reaction-format-test
+  (testing "REACTION entry serialization"
+    (let [entry {:entry "R00001"
+                 :name "polyphosphate polyphosphohydrolase"
+                 :definition "Polyphosphate + n H2O <=> (n+1) Oligophosphate"
+                 :equation "C00404 + n C00001 <=> (n+1) C02174"
+                 :entry-type :reaction}
+          text (ser/kegg-map->text entry)]
+      (is (str/includes? text "ENTRY"))
+      (is (str/includes? text "DEFINITION"))
+      (is (str/includes? text "EQUATION"))
+      (is (str/includes? text "///")))))
+
+(deftest disease-format-test
+  (testing "DISEASE entry serialization"
+    (let [entry {:entry "H00001"
+                 :name "Acute lymphoblastic leukemia"
+                 :description "Acute lymphoblastic leukemia (ALL) is a malignant disease"
+                 :category "Cancer"
+                 :entry-type :disease}
+          text (ser/kegg-map->text entry)]
+      (is (str/includes? text "ENTRY"))
+      (is (str/includes? text "NAME"))
+      (is (str/includes? text "DESCRIPTION"))
+      (is (str/includes? text "CATEGORY"))
+      (is (str/includes? text "///")))))
+
+(deftest drug-format-test
+  (testing "DRUG entry serialization"
+    (let [entry {:entry "D00001"
+                 :name "Water"
+                 :formula "H2O"
+                 :mol-weight "18.0153"
+                 :entry-type :drug}
+          text (ser/kegg-map->text entry)]
+      (is (str/includes? text "ENTRY"))
+      (is (str/includes? text "NAME"))
+      (is (str/includes? text "FORMULA"))
+      (is (str/includes? text "///")))))
+
+(deftest all-entry-types-serialize
+  (testing "all entry types produce valid output"
+    (doseq [entry-type (reg/entry-types)]
+      (let [entry {:entry "TEST001"
+                   :name "Test Entry"
+                   :entry-type entry-type}
+            text (ser/kegg-map->text entry)]
+        (is (string? text) (str "Failed for " entry-type))
+        (is (str/includes? text "ENTRY") (str "Missing ENTRY for " entry-type))
+        (is (str/includes? text "///") (str "Missing /// for " entry-type))))))
+
+;; ---------------------------------------------------------------------------
 ;; Sample Data for Manual Testing
 ;; ---------------------------------------------------------------------------
 
@@ -217,3 +357,13 @@
    :gene [["b0008" "talB; transaldolase B"]
           ["b0114" "aceE; pyruvate dehydrogenase"]]
    :entry-type :pathway})
+
+(def sample-genes
+  "Sample genes entry for testing"
+  {:entry "hsa:7157"
+   :name "TP53"
+   :definition "tumor protein p53"
+   :orthology "K04451 tumor protein p53"
+   :organism "Homo sapiens (human)"
+   :aaseq "MEEPQSDPSVEPPLSQETFSDLWKLLPENNVLSPLPSQAMDDLMLSPDDIEQWFTEDPGPDEAPRMPEAAPPVAPAPAAPTPAAPAPAPSWPLSSSVPSQKTYQGSYGFRLGFLHSGTAKSVTCTYSPALNKMFCQLAKTCPVQLWVDSTPPPGTRVRAMAIYKQSQHMTEVVRRCPHHERCSDSDGLAPPQHLIRVEGNLRVEYLDDRNTFRHSVVVPYEPPEVGSDCTTIHYNYMCNSSCMGGMNRRPILTIITLEDSSGNLLGRNSFEVRVCACPGRDRRTEEENLRKKGEPHHELPPGSTKRALPNNTSSSPQPKKKPLDGEYFTLQIRGRERFEMFRELNEALELKDAQAGKEPGGSRAHSSHLKSKKGQSTSRHKKLMFKTEGPDSD"
+   :entry-type :genes})

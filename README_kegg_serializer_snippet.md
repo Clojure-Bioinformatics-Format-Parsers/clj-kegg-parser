@@ -148,23 +148,73 @@ The `clj-kegg-parser` library now includes:
 (stats/entries->csv entries [:entry :name] {:header? false})
 ```
 
+## Sequence Formatting
+
+```clojure
+;; AASEQ and NTSEQ are properly formatted with 60-char line width
+(def gene-entry
+  {:entry "hsa:7157"
+   :name "TP53"
+   :definition "tumor protein p53"
+   :organism "Homo sapiens (human)"
+   :aaseq "MEEPQSDPSVEPPLSQETFSDLWKLLPENNVLSPLPSQAMDDLMLSPDDIEQWFTEDPGPDEAPRMPEAAPPVAPAPAAPTPAAPAPAPSWPLSSSVPSQKTYQGSYGFRLGFLHSGTAKSVTCTYSPALNKMFCQLAKTCPVQLWVDSTPPPGTRVRAMAIYKQSQHMTEVVRRCPHHERCSDSDGLAPPQHLIRVEGNLRVEYLDDRNTFRHSVVVPYEPPEVGSDCTTIHYNYMCNSSCMGGMNRRPILTIITLEDSSGNLLGRNSFEVRVCACPGRDRRTEEENLRKKGEPHHELPPGSTKRALPNNTSSSPQPKKKPLDGEYFTLQIRGRERFEMFRELNEALELKDAQAGKEPGGSRAHSSHLKSKKGQSTSRHKKLMFKTEGPDSD"
+   :entry-type :genes})
+
+(println (ser/kegg-map->text gene-entry))
+;; Output:
+;; ENTRY       hsa:7157
+;; NAME        TP53
+;; DEFINITION  tumor protein p53
+;; ORGANISM    Homo sapiens (human)
+;; AASEQ       393
+;;             MEEPQSDPSVEPPLSQETFSDLWKLLPENNVLSPLPSQAMDDLMLSPDDIEQWFTEDPGP
+;;             DEAPRMPEAAPPVAPAPAAPTPAAPAPAPSWPLSSSVPSQKTYQGSYGFRLGFLHSGTAK
+;;             ...
+;; ///
+```
+
 ## Configuration
 
 ```clojure
 ;; Adjust serialization parameters
-(binding [ser/*label-width* 16    ; wider label column
-          ser/*line-width* 100]   ; longer lines
+(binding [ser/*label-width* 16         ; wider label column
+          ser/*line-width* 100         ; longer lines
+          ser/*sequence-line-width* 70] ; custom sequence width
   (ser/kegg-map->text entry))
 ```
 
-## What's Not Yet Implemented
+## Supported Entry Types
 
-The following features require additional work:
+All 16 KEGG entry types are fully implemented:
 
-1. **KCF/ATOM/BOND blocks**: GLYCAN KCF and COMPOUND MOL-format blocks need bespoke serialization
-2. **Sequence formatting**: AASEQ/NTSEQ should wrap at 60 characters per line
-3. **BRITE hierarchy**: Tree-structured hierarchies need indentation handling
-4. **Full round-trip tests**: Pending integration with text→map parser
+| Type | Description | Documentation |
+|------|-------------|---------------|
+| `:pathway` | Metabolic and signaling pathways | [kegg3a.html](https://www.genome.jp/kegg/kegg3a.html) |
+| `:brite` | Hierarchical classifications | [kegg3b.html](https://www.genome.jp/kegg/kegg3b.html) |
+| `:module` | Functional units | [kegg3c.html](https://www.genome.jp/kegg/kegg3c.html) |
+| `:ko` | KEGG Orthology groups | [kegg4.html](https://www.genome.jp/kegg/kegg4.html) |
+| `:genes` | Organism-specific genes | [kegg4.html](https://www.genome.jp/kegg/kegg4.html) |
+| `:genome` | Complete genomes | [kegg4.html](https://www.genome.jp/kegg/kegg4.html) |
+| `:compound` | Chemical compounds | [kegg5.html](https://www.genome.jp/kegg/kegg5.html) |
+| `:glycan` | Carbohydrates | [kegg5.html](https://www.genome.jp/kegg/kegg5.html) |
+| `:reaction` | Biochemical reactions | [kegg5.html](https://www.genome.jp/kegg/kegg5.html) |
+| `:rclass` | Reaction classes | [kegg5.html](https://www.genome.jp/kegg/kegg5.html) |
+| `:enzyme` | Enzyme classification | [kegg5.html](https://www.genome.jp/kegg/kegg5.html) |
+| `:network` | Disease/gene networks | [kegg6.html](https://www.genome.jp/kegg/kegg6.html) |
+| `:variant` | Disease variants | [kegg6.html](https://www.genome.jp/kegg/kegg6.html) |
+| `:disease` | Human diseases | [kegg7.html](https://www.genome.jp/kegg/kegg7.html) |
+| `:drug` | Approved drugs | [kegg7.html](https://www.genome.jp/kegg/kegg7.html) |
+| `:dgroup` | Drug groups | [kegg7.html](https://www.genome.jp/kegg/kegg7.html) |
+
+## Special Block Handling
+
+The serializer properly handles special formatted blocks:
+
+- **AASEQ/NTSEQ**: Wrapped at 60 characters per line (configurable)
+- **ATOM/BOND/BRACKET**: MOL-format blocks for chemical structures
+- **KCF**: KEGG Chemical Function format for glycan structures
+- **HIERARCHY**: BRITE tree structures with proper indentation
+- **REFERENCE**: Multi-field blocks with AUTHORS, TITLE, JOURNAL
 
 ## KEGG Documentation References
 

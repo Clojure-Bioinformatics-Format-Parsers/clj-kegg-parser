@@ -225,18 +225,89 @@
      (when-let [journal (:journal ref-map)]
        (emit-field-lines (str *sub-field-indent* "JOURNAL") journal)))))
 
+(def ^:dynamic *sequence-line-width*
+  "Width for sequence lines (AASEQ/NTSEQ). KEGG uses 60 characters."
+  60)
+
 (defn emit-sequence
-  "Emits sequence data (AASEQ/NTSEQ) with proper formatting.
-   First line is count, subsequent lines are wrapped sequence.
+  "Emits sequence data (AASEQ/NTSEQ) with proper KEGG formatting.
+   First line shows sequence length, subsequent lines wrap at 60 chars.
    
-   TODO: Implement proper sequence line width (typically 60 chars)."
+   KEGG sequence format example:
+   AASEQ       123
+               MVLSPADKTNVKAAWGKVGAHAGEYGAEALERMFLSFPTTKTYFPHFDLSH
+               GSAQVKGHGKKVADALTNAVAHVDDMPNALSALSDLHAHKLRVDPVNFKLL"
   [label sequence-str]
   (let [label-str (-> label normalize-key pad-label)
-        ;; For now, just emit as-is with length on first line
         seq-clean (str/replace (str sequence-str) #"\s+" "")
-        length (count seq-clean)]
-    [(str label-str length)
-     (str (blank-label) seq-clean)]))
+        length (count seq-clean)
+        ;; Split sequence into lines of *sequence-line-width* chars
+        seq-lines (if (empty? seq-clean)
+                    []
+                    (->> seq-clean
+                         (partition-all *sequence-line-width*)
+                         (map #(apply str %))))]
+    (concat
+     [(str label-str length)]
+     (map #(str (blank-label) %) seq-lines))))
+
+(defn emit-mol-block
+  "Emits MOL-format block fields (ATOM/BOND/BRACKET).
+   These are used in COMPOUND and DRUG entries for chemical structure.
+   
+   MOL format is a standard chemical file format that requires
+   specific column-aligned formatting."
+  [label mol-data]
+  (let [label-str (-> label normalize-key pad-label)]
+    (if (string? mol-data)
+      ;; If already a formatted string, emit as-is with proper labeling
+      (let [lines (str/split-lines mol-data)]
+        (map-indexed
+         (fn [idx line]
+           (if (zero? idx)
+             (str label-str line)
+             (str (blank-label) line)))
+         lines))
+      ;; If structured data, emit field-by-field
+      (emit-field-lines label (str mol-data)))))
+
+(defn emit-kcf-block
+  "Emits KCF (KEGG Chemical Function) format block for GLYCAN entries.
+   KCF format describes carbohydrate structures with specific syntax.
+   
+   Example KCF format:
+   NODE        3
+               1 Glc a1
+               2 Gal b1
+               3 Man a1"
+  [kcf-data]
+  (let [label-str (pad-label "KCF")]
+    (if (string? kcf-data)
+      ;; If already a formatted string, emit with proper labeling
+      (let [lines (str/split-lines kcf-data)]
+        (map-indexed
+         (fn [idx line]
+           (if (zero? idx)
+             (str label-str line)
+             (str (blank-label) line)))
+         lines))
+      ;; Otherwise emit as field
+      (emit-field-lines "KCF" (str kcf-data)))))
+
+(defn emit-hierarchy
+  "Emits BRITE hierarchy with proper tree indentation.
+   BRITE hierarchies use letter prefixes (A, B, C, D, E) for levels."
+  [hierarchy-data]
+  (let [label-str (pad-label "HIERARCHY")]
+    (if (string? hierarchy-data)
+      (let [lines (str/split-lines hierarchy-data)]
+        (map-indexed
+         (fn [idx line]
+           (if (zero? idx)
+             (str label-str line)
+             (str (blank-label) line)))
+         lines))
+      (emit-field-lines "HIERARCHY" (str hierarchy-data)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Entry Emission
@@ -269,13 +340,21 @@
             (= field :reference)
             (emit-reference value)
             
-            ;; Special handling for sequences
+            ;; Special handling for sequences (AASEQ/NTSEQ)
             (#{:aaseq :ntseq} field)
             (emit-sequence field value)
             
-            ;; Special blocks - placeholder for bespoke handling
-            (registry/special-block? field)
-            (emit-field-lines field (str ";; " (normalize-key field) " block - TODO"))
+            ;; Special handling for MOL blocks (ATOM/BOND/BRACKET)
+            (#{:atom :bond :bracket} field)
+            (emit-mol-block field value)
+            
+            ;; Special handling for KCF blocks (GLYCAN)
+            (= field :kcf)
+            (emit-kcf-block value)
+            
+            ;; Special handling for BRITE hierarchy
+            (= field :hierarchy)
+            (emit-hierarchy value)
             
             ;; Standard field emission
             :else
@@ -311,22 +390,139 @@
     (->> (emit-entry entry-map entry-type)
          (str/join "\n"))))
 
-;; Type-specific methods can override for custom formatting
+;; ---------------------------------------------------------------------------
+;; Type-specific Serialization Methods
+;; ---------------------------------------------------------------------------
+;; Each KEGG entry type has specific field orders and formatting requirements.
+;; See: https://www.genome.jp/kegg/kegg3a.html through kegg7.html
 
+;; PATHWAY format: https://www.genome.jp/kegg/kegg3a.html
+;; Fields: ENTRY, NAME, DESCRIPTION, CLASS, PATHWAY_MAP, MODULE, DISEASE, DRUG,
+;;         ORGANISM, GENE, COMPOUND, REL_PATHWAY, KO_PATHWAY, REFERENCE, DBLINKS
 (defmethod kegg-map->text :pathway
   [entry-map]
   (->> (emit-entry entry-map :pathway)
        (str/join "\n")))
 
-(defmethod kegg-map->text :compound
+;; BRITE format: https://www.genome.jp/kegg/kegg3b.html
+;; Fields: ENTRY, NAME, DESCRIPTION, HIERARCHY, REFERENCE, DBLINKS
+;; Note: HIERARCHY is a tree structure with specific indentation
+(defmethod kegg-map->text :brite
   [entry-map]
-  ;; TODO: Add special handling for ATOM/BOND blocks
-  (->> (emit-entry entry-map :compound)
+  (->> (emit-entry entry-map :brite)
        (str/join "\n")))
 
+;; MODULE format: https://www.genome.jp/kegg/kegg3c.html  
+;; Fields: ENTRY, NAME, DEFINITION, ORTHOLOGY, CLASS, PATHWAY, REACTION,
+;;         COMPOUND, COMMENT, REFERENCE, DBLINKS
+(defmethod kegg-map->text :module
+  [entry-map]
+  (->> (emit-entry entry-map :module)
+       (str/join "\n")))
+
+;; KO (KEGG Orthology) format: https://www.genome.jp/kegg/kegg4.html
+;; Fields: ENTRY, NAME, DEFINITION, PATHWAY, MODULE, BRITE, DBLINKS, GENES, REFERENCE
+(defmethod kegg-map->text :ko
+  [entry-map]
+  (->> (emit-entry entry-map :ko)
+       (str/join "\n")))
+
+;; GENES format: https://www.genome.jp/kegg/kegg4.html
+;; Fields: ENTRY, NAME, DEFINITION, ORTHOLOGY, ORGANISM, PATHWAY, MODULE, BRITE,
+;;         STRUCTURE, POSITION, MOTIF, DBLINKS, AASEQ, NTSEQ
+;; Note: AASEQ/NTSEQ require special sequence formatting (60 chars per line)
 (defmethod kegg-map->text :genes
   [entry-map]
   (->> (emit-entry entry-map :genes)
+       (str/join "\n")))
+
+;; GENOME format: https://www.genome.jp/kegg/kegg4.html
+;; Fields: ENTRY, NAME, DEFINITION, ANNOTATION, TAXONOMY, LINEAGE, DATA_SOURCE,
+;;         KEYWORDS, DISEASE, COMMENT, REFERENCE, DBLINKS
+(defmethod kegg-map->text :genome
+  [entry-map]
+  (->> (emit-entry entry-map :genome)
+       (str/join "\n")))
+
+;; COMPOUND format: https://www.genome.jp/kegg/kegg5.html
+;; Fields: ENTRY, NAME, FORMULA, EXACT_MASS, MOL_WEIGHT, REMARK, COMMENT,
+;;         REACTION, PATHWAY, ENZYME, BRITE, DBLINKS, ATOM, BOND, BRACKET
+;; Note: ATOM/BOND/BRACKET are MOL-format blocks requiring special handling
+(defmethod kegg-map->text :compound
+  [entry-map]
+  (->> (emit-entry entry-map :compound)
+       (str/join "\n")))
+
+;; GLYCAN format: https://www.genome.jp/kegg/kegg5.html
+;; Fields: ENTRY, NAME, COMPOSITION, MASS, CLASS, REMARK, COMMENT,
+;;         REACTION, PATHWAY, ENZYME, BRITE, DBLINKS, KCF
+;; Note: KCF is KEGG Chemical Function format block requiring special handling
+(defmethod kegg-map->text :glycan
+  [entry-map]
+  (->> (emit-entry entry-map :glycan)
+       (str/join "\n")))
+
+;; REACTION format: https://www.genome.jp/kegg/kegg5.html
+;; Fields: ENTRY, NAME, DEFINITION, EQUATION, COMMENT, RCLASS, ENZYME,
+;;         PATHWAY, MODULE, ORTHOLOGY, REFERENCE, DBLINKS
+(defmethod kegg-map->text :reaction
+  [entry-map]
+  (->> (emit-entry entry-map :reaction)
+       (str/join "\n")))
+
+;; RCLASS format: https://www.genome.jp/kegg/kegg5.html
+;; Fields: ENTRY, DEFINITION, RPAIR, REACTION, ENZYME, PATHWAY, ORTHOLOGY, DBLINKS
+(defmethod kegg-map->text :rclass
+  [entry-map]
+  (->> (emit-entry entry-map :rclass)
+       (str/join "\n")))
+
+;; ENZYME format: https://www.genome.jp/kegg/kegg5.html
+;; Fields: ENTRY, NAME, CLASS, SYSNAME, REACTION, ALL_REAC, SUBSTRATE, PRODUCT,
+;;         COMMENT, HISTORY, PATHWAY, ORTHOLOGY, GENES, REFERENCE, DBLINKS
+(defmethod kegg-map->text :enzyme
+  [entry-map]
+  (->> (emit-entry entry-map :enzyme)
+       (str/join "\n")))
+
+;; NETWORK format: https://www.genome.jp/kegg/kegg6.html
+;; Fields: ENTRY, NAME, DEFINITION, TYPE, PATHWAY, DISEASE, GENE, PERTURBANT,
+;;         CARDINALITY, REFERENCE, DBLINKS
+(defmethod kegg-map->text :network
+  [entry-map]
+  (->> (emit-entry entry-map :network)
+       (str/join "\n")))
+
+;; VARIANT format: https://www.genome.jp/kegg/kegg6.html
+;; Fields: ENTRY, NAME, GENE, VARIATION, DISEASE, DBLINKS
+(defmethod kegg-map->text :variant
+  [entry-map]
+  (->> (emit-entry entry-map :variant)
+       (str/join "\n")))
+
+;; DISEASE format: https://www.genome.jp/kegg/kegg7.html
+;; Fields: ENTRY, NAME, DESCRIPTION, CATEGORY, GENE, MARKER, ENV_FACTOR,
+;;         CARCINOGEN, PATHOGEN, DRUG, PATHWAY, COMMENT, REFERENCE, DBLINKS
+(defmethod kegg-map->text :disease
+  [entry-map]
+  (->> (emit-entry entry-map :disease)
+       (str/join "\n")))
+
+;; DRUG format: https://www.genome.jp/kegg/kegg7.html
+;; Fields: ENTRY, NAME, PRODUCT, FORMULA, EXACT_MASS, MOL_WEIGHT, SEQUENCE,
+;;         REMARK, CLASS, EFFICACY, TARGET, METABOLISM, INTERACTION, STR_MAP,
+;;         OTHER_MAP, SOURCE, COMPONENT, COMMENT, BRITE, DBLINKS, ATOM, BOND
+;; Note: ATOM/BOND are MOL-format blocks requiring special handling
+(defmethod kegg-map->text :drug
+  [entry-map]
+  (->> (emit-entry entry-map :drug)
+       (str/join "\n")))
+
+;; DGROUP (Drug Group) format: https://www.genome.jp/kegg/kegg7.html
+;; Fields: ENTRY, NAME, REMARK, MEMBER, CLASS, COMMENT, DBLINKS
+(defmethod kegg-map->text :dgroup
+  [entry-map]
+  (->> (emit-entry entry-map :dgroup)
        (str/join "\n")))
 
 ;; ---------------------------------------------------------------------------
