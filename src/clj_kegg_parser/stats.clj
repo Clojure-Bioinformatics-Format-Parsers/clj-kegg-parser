@@ -13,6 +13,16 @@
             [clj-kegg-parser.extractors :as ex]))
 
 ;; ---------------------------------------------------------------------------
+;; Utility Functions
+;; ---------------------------------------------------------------------------
+
+(defn ensure-sequential
+  "Ensures a value is sequential. If already sequential, returns as-is.
+   Otherwise wraps in a vector."
+  [x]
+  (if (sequential? x) x [x]))
+
+;; ---------------------------------------------------------------------------
 ;; Field Analysis
 ;; ---------------------------------------------------------------------------
 
@@ -101,7 +111,7 @@
   (->> entries
        (map #(ex/get-field % field))
        (filter some?)
-       (mapcat #(if (sequential? %) % [%]))
+       (mapcat ensure-sequential)
        (map str)
        (frequencies)
        (sort-by (comp - val))

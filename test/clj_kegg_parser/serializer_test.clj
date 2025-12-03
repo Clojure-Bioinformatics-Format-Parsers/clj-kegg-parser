@@ -27,7 +27,7 @@
     (is (= "NAME        " (ser/pad-label "NAME"))))
   
   (testing "pad-label truncates long labels"
-    (is (= "VERYLONGLAB" (subs (ser/pad-label "VERYLONGLABEL") 0 11)))
+    (is (= "VERYLONGLABE" (ser/pad-label "VERYLONGLABEL")))
     (is (= 12 (count (ser/pad-label "VERYLONGLABELNAME"))))))
 
 (deftest blank-label-test

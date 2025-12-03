@@ -34,8 +34,14 @@
   "Maximum line width for wrapped content. Default 80."
   80)
 
-(def ^:dynamic *content-width*
-  "Available width for content (line-width minus label-width)."
+(def ^:dynamic *sub-field-indent*
+  "Indentation prefix for sub-fields (e.g., in REFERENCE blocks)."
+  "  ")
+
+(defn content-width
+  "Returns available width for content (line-width minus label-width).
+   Uses current values of dynamic vars."
+  []
   (- *line-width* *label-width*))
 
 ;; ---------------------------------------------------------------------------
@@ -86,10 +92,10 @@
    
    Parameters:
    - text: String to wrap
-   - width: Maximum width per line (default *content-width*)
+   - width: Maximum width per line (default (content-width))
    
    Returns a sequence of strings, each representing one line of output."
-  ([text] (wrap-text text *content-width*))
+  ([text] (wrap-text text (content-width)))
   ([text width]
    (if (str/blank? text)
      [""]
@@ -180,7 +186,7 @@
      ;; Sub-fields with blank label prefix
      (mapcat
       (fn [[k v]]
-        (let [sub-label (str "  " (normalize-key k))]
+        (let [sub-label (str *sub-field-indent* (normalize-key k))]
           (emit-field-lines sub-label v)))
       value-map))))
 
@@ -213,11 +219,11 @@
     (concat
      [header-line]
      (when-let [authors (:authors ref-map)]
-       (emit-field-lines "  AUTHORS" authors))
+       (emit-field-lines (str *sub-field-indent* "AUTHORS") authors))
      (when-let [title (:title ref-map)]
-       (emit-field-lines "  TITLE" title))
+       (emit-field-lines (str *sub-field-indent* "TITLE") title))
      (when-let [journal (:journal ref-map)]
-       (emit-field-lines "  JOURNAL" journal)))))
+       (emit-field-lines (str *sub-field-indent* "JOURNAL") journal)))))
 
 (defn emit-sequence
   "Emits sequence data (AASEQ/NTSEQ) with proper formatting.
